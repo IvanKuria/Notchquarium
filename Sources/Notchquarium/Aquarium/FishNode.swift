@@ -6,7 +6,8 @@ import SpriteKit
 final class FishNode: SKNode {
     let pid: pid_t
     private(set) var sample: ProcessSample
-    private let body = SKShapeNode()
+    private let sprite = SKSpriteNode()
+    private static let textureSize = CGSize(width: 76, height: 46)
 
     /// Text shown in the hover tooltip, e.g. "Chrome — 41% CPU".
     var appLabel: String { "\(sample.name) — \(Int(sample.cpuPercent.rounded()))% CPU" }
@@ -15,10 +16,8 @@ final class FishNode: SKNode {
         self.pid = sample.pid
         self.sample = sample
         super.init()
-        body.path = FishNode.makeBodyPath()
-        body.lineWidth = 0
-        body.zPosition = 10
-        addChild(body)
+        sprite.zPosition = 10
+        addChild(sprite)
         apply(sample, animated: false)
     }
 
@@ -32,23 +31,24 @@ final class FishNode: SKNode {
 
     private func apply(_ sample: ProcessSample, animated: Bool) {
         let load = min(max(sample.cpuPercent / 100, 0), 1)
-        let scale = 0.6 + load * 1.0                  // 0.6 ... 1.6
-        let hue = 0.55 * (1 - load)                   // teal (calm) -> red (busy)
-        let color = NSColor(hue: hue, saturation: 0.7, brightness: 0.95, alpha: 1)
+        let scale = 0.6 + load * 1.0                   // 0.6 ... 1.6
+        let hue = 0.55 - 0.55 * load                   // teal (calm) -> red (busy)
+
+        sprite.texture = SpriteTextures.glossyFish(size: FishNode.textureSize, hue: hue)
+        sprite.size = FishNode.textureSize
 
         if animated {
             run(.scale(to: scale, duration: 0.5))
         } else {
             setScale(scale)
         }
-        body.fillColor = color
     }
 
     /// Begin a gentle, endless wander within the given bounds.
     func startWandering(in size: CGSize) {
         position = CGPoint(
             x: .random(in: size.width * 0.15 ... size.width * 0.85),
-            y: .random(in: size.height * 0.2 ... size.height * 0.8)
+            y: .random(in: size.height * 0.2 ... size.height * 0.7)
         )
         wanderStep(in: size)
     }
@@ -56,35 +56,26 @@ final class FishNode: SKNode {
     private func wanderStep(in size: CGSize) {
         let target = CGPoint(
             x: .random(in: size.width * 0.1 ... size.width * 0.9),
-            y: .random(in: size.height * 0.15 ... size.height * 0.85)
+            y: .random(in: size.height * 0.15 ... size.height * 0.75)
         )
         // Faster fish for busier processes.
         let load = min(max(sample.cpuPercent / 100, 0), 1)
-        let speed = 30.0 + load * 70.0 // points/sec
+        let speed = 26.0 + load * 70.0 // points/sec
         let distance = hypot(target.x - position.x, target.y - position.y)
-        let duration = max(Double(distance) / speed, 0.8)
+        let duration = max(Double(distance) / speed, 0.9)
 
-        // Face the direction of travel.
+        // Face the direction of travel (texture points right).
         xScale = abs(xScale) * (target.x >= position.x ? 1 : -1)
 
         let move = SKAction.move(to: target, duration: duration)
         move.timingMode = .easeInEaseOut
-        run(move) { [weak self] in
-            guard let self else { return }
-            self.wanderStep(in: size)
+        // A little vertical bob for life.
+        let bob = SKAction.sequence([
+            .moveBy(x: 0, y: 4, duration: duration / 2),
+            .moveBy(x: 0, y: -4, duration: duration / 2),
+        ])
+        run(.group([move, bob])) { [weak self] in
+            self?.wanderStep(in: size)
         }
-    }
-
-    /// A simple fish silhouette: rounded body + triangular tail, pointing right.
-    private static func makeBodyPath() -> CGPath {
-        let path = CGMutablePath()
-        // Body
-        path.addEllipse(in: CGRect(x: -14, y: -7, width: 28, height: 14))
-        // Tail
-        path.move(to: CGPoint(x: -12, y: 0))
-        path.addLine(to: CGPoint(x: -22, y: 8))
-        path.addLine(to: CGPoint(x: -22, y: -8))
-        path.closeSubpath()
-        return path
     }
 }

@@ -5,9 +5,16 @@ import SpriteKit
 /// - water *level* = battery
 /// - bubble *rate* = CPU
 /// - water *clarity* (green murk) = memory pressure
-/// - fish = top processes (added in the fish task)
+/// - fish = top processes
+///
+/// Visuals follow the Frutiger Aero recipe: a soft aurora sky, a glossy
+/// aqua→lime water body with a bright glassy surface line, drifting bokeh,
+/// light shafts, glass bubbles and gradient tropical fish.
 final class AquariumScene: SKScene {
+    private let sky = SKSpriteNode()
     private let waterNode = SKSpriteNode()
+    private let waterSheen = SKSpriteNode()
+    private let waterline = SKSpriteNode()
     private let memoryTint = SKSpriteNode()
     private var bubbleEmitter = SKEmitterNode()
 
@@ -16,25 +23,30 @@ final class AquariumScene: SKScene {
 
     private let tooltip = TooltipNode()
 
-    // Decorative (Frutiger Aero) chrome.
-    private let specular = SKSpriteNode()
+    // Decorative chrome.
+    private let bokehLayer = SKNode()
     private let gravel = SKNode()
-    private let plant = SKShapeNode()
+    private let plant = SKNode()
     private let rays = SKNode()
+    private let glassSheen = SKSpriteNode()
+
+    private var waterFraction: CGFloat = 1
 
     /// Tuning constants for the vitals→visuals mapping.
-    private let maxBubbleRate: CGFloat = 60
-    private let maxMurkAlpha: CGFloat = 0.45
+    private let maxBubbleRate: CGFloat = 70
+    private let maxMurkAlpha: CGFloat = 0.40
 
     override init(size: CGSize) {
         super.init(size: size)
-        scaleMode = .resizeFill
-        anchorPoint = CGPoint(x: 0, y: 0)
-        buildScene()
+        commonInit()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        commonInit()
+    }
+
+    private func commonInit() {
         scaleMode = .resizeFill
         anchorPoint = CGPoint(x: 0, y: 0)
         buildScene()
@@ -45,26 +57,63 @@ final class AquariumScene: SKScene {
         layout()
     }
 
-    private func buildScene() {
-        backgroundColor = NSColor(calibratedRed: 0.02, green: 0.05, blue: 0.10, alpha: 1)
+    // MARK: - Build
 
-        // Aqua -> sky vertical gradient water body, anchored at the bottom.
+    private func buildScene() {
+        backgroundColor = .clear
+
+        // Aurora sky behind the water (visible above the waterline).
+        sky.texture = SpriteTextures.diagonalGradient(
+            size: CGSize(width: 256, height: 256),
+            colors: [
+                NSColor(calibratedRed: 0.46, green: 0.78, blue: 0.96, alpha: 1), // sky blue
+                NSColor(calibratedRed: 0.74, green: 0.93, blue: 1.00, alpha: 1), // pale cyan
+                NSColor(calibratedRed: 0.93, green: 0.99, blue: 0.96, alpha: 1), // near-white horizon
+            ],
+            locations: [0, 0.6, 1]
+        )
+        sky.anchorPoint = CGPoint(x: 0.5, y: 0)
+        sky.zPosition = -10
+        addChild(sky)
+
+        // Glossy aqua -> lime/teal water body, anchored at the bottom.
         waterNode.texture = SpriteTextures.verticalGradient(
             size: CGSize(width: 64, height: 256),
-            top: NSColor(calibratedRed: 0.55, green: 0.85, blue: 0.98, alpha: 1),
-            bottom: NSColor(calibratedRed: 0.10, green: 0.45, blue: 0.70, alpha: 1)
+            top: NSColor(calibratedRed: 0.56, green: 0.90, blue: 0.92, alpha: 1),   // bright aqua surface
+            bottom: NSColor(calibratedRed: 0.10, green: 0.52, blue: 0.45, alpha: 1) // deep teal-green
         )
         waterNode.anchorPoint = CGPoint(x: 0.5, y: 0)
         waterNode.zPosition = 0
         addChild(waterNode)
 
+        // Soft top sheen inside the water (light entering the surface).
+        waterSheen.texture = SpriteTextures.verticalGradient(
+            size: CGSize(width: 64, height: 64),
+            top: NSColor(calibratedWhite: 1, alpha: 0.30),
+            bottom: NSColor(calibratedWhite: 1, alpha: 0.0)
+        )
+        waterSheen.anchorPoint = CGPoint(x: 0.5, y: 1)
+        waterSheen.blendMode = .add
+        waterSheen.zPosition = 1
+        addChild(waterSheen)
+
+        // Bright glassy waterline (the meniscus highlight).
+        waterline.texture = SpriteTextures.verticalGradient(
+            size: CGSize(width: 64, height: 8),
+            top: NSColor(calibratedRed: 0.85, green: 1.0, blue: 1.0, alpha: 0.0),
+            bottom: NSColor(calibratedRed: 0.90, green: 1.0, blue: 1.0, alpha: 0.85)
+        )
+        waterline.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        waterline.blendMode = .add
+        waterline.zPosition = 4
+        addChild(waterline)
+
         // Green murk overlay; alpha rises with memory pressure.
-        memoryTint.color = NSColor(calibratedRed: 0.20, green: 0.55, blue: 0.20, alpha: 1)
+        memoryTint.color = NSColor(calibratedRed: 0.30, green: 0.62, blue: 0.22, alpha: 1)
         memoryTint.colorBlendFactor = 1
-        memoryTint.texture = nil
         memoryTint.anchorPoint = CGPoint(x: 0.5, y: 0)
         memoryTint.alpha = 0
-        memoryTint.zPosition = 6
+        memoryTint.zPosition = 2
         addChild(memoryTint)
 
         bubbleEmitter = BubbleEmitter.make(width: size.width)
@@ -80,70 +129,98 @@ final class AquariumScene: SKScene {
     }
 
     private func buildDecor() {
-        // Light rays slanting down from the top-left.
-        for i in 0..<3 {
-            let ray = SKShapeNode(rectOf: CGSize(width: 26, height: 600))
-            ray.fillColor = NSColor(calibratedWhite: 1, alpha: 0.06)
-            ray.strokeColor = .clear
-            ray.blendMode = .add
-            ray.zPosition = 3
-            ray.zRotation = .pi / 7
-            ray.position = CGPoint(x: 60 + CGFloat(i) * 70, y: 120)
-            ray.run(.repeatForever(.sequence([
-                .fadeAlpha(to: 0.9, duration: 3 + Double(i)),
-                .fadeAlpha(to: 0.4, duration: 3 + Double(i)),
+        // Light shafts slanting down from the top.
+        for i in 0..<4 {
+            let shaft = SKSpriteNode(texture: SpriteTextures.verticalGradient(
+                size: CGSize(width: 40, height: 400),
+                top: NSColor(calibratedWhite: 1, alpha: 0.10),
+                bottom: NSColor(calibratedWhite: 1, alpha: 0.0)
+            ))
+            shaft.anchorPoint = CGPoint(x: 0.5, y: 1)
+            shaft.blendMode = .add
+            shaft.zPosition = 3
+            shaft.zRotation = .pi / 9
+            shaft.position = CGPoint(x: 50 + CGFloat(i) * 90, y: 260)
+            shaft.run(.repeatForever(.sequence([
+                .fadeAlpha(to: 0.9, duration: 3 + Double(i) * 0.7),
+                .fadeAlpha(to: 0.35, duration: 3 + Double(i) * 0.7),
             ])))
-            rays.addChild(ray)
+            rays.addChild(shaft)
         }
         addChild(rays)
 
-        // Top specular gloss (additive white fading down).
-        specular.texture = SpriteTextures.verticalGradient(
-            size: CGSize(width: 64, height: 64),
-            top: NSColor(calibratedWhite: 1, alpha: 0.0),
-            bottom: NSColor(calibratedWhite: 1, alpha: 0.35)
-        )
-        specular.anchorPoint = CGPoint(x: 0.5, y: 1)
-        specular.blendMode = .add
-        specular.zPosition = 8
-        addChild(specular)
-
-        // Gravel pebbles along the floor.
-        let pebbleColors = [
-            NSColor(calibratedRed: 0.85, green: 0.78, blue: 0.62, alpha: 1),
-            NSColor(calibratedRed: 0.72, green: 0.62, blue: 0.48, alpha: 1),
-            NSColor(calibratedRed: 0.62, green: 0.70, blue: 0.66, alpha: 1),
+        // Drifting bokeh (soft out-of-focus light circles).
+        let bokehColors = [
+            NSColor(calibratedRed: 1.0, green: 1.0, blue: 1.0, alpha: 1),
+            NSColor(calibratedRed: 0.7, green: 0.95, blue: 1.0, alpha: 1),
+            NSColor(calibratedRed: 0.75, green: 1.0, blue: 0.7, alpha: 1), // lime
         ]
-        for i in 0..<40 {
-            let r = CGFloat.random(in: 4...8)
+        for i in 0..<7 {
+            let d = CGFloat.random(in: 26...70)
+            let dot = SKSpriteNode(texture: SpriteTextures.bokeh(diameter: d, color: bokehColors[i % bokehColors.count]))
+            dot.size = CGSize(width: d, height: d)
+            dot.blendMode = .add
+            dot.zPosition = 9
+            dot.alpha = CGFloat.random(in: 0.3...0.7)
+            bokehLayer.addChild(dot)
+        }
+        bokehLayer.zPosition = 9
+        addChild(bokehLayer)
+
+        // Gravel pebbles along the floor (bright, sunlit).
+        let pebbleColors = [
+            NSColor(calibratedRed: 0.95, green: 0.90, blue: 0.74, alpha: 1),
+            NSColor(calibratedRed: 0.82, green: 0.72, blue: 0.56, alpha: 1),
+            NSColor(calibratedRed: 0.72, green: 0.84, blue: 0.72, alpha: 1),
+            NSColor(calibratedRed: 0.88, green: 0.80, blue: 0.86, alpha: 1),
+        ]
+        for i in 0..<60 {
+            let r = CGFloat.random(in: 4...9)
             let pebble = SKShapeNode(circleOfRadius: r)
             pebble.fillColor = pebbleColors[i % pebbleColors.count]
-            pebble.strokeColor = .clear
-            pebble.position = CGPoint(x: CGFloat(i) * 14, y: CGFloat.random(in: 2...10))
+            pebble.strokeColor = NSColor(calibratedWhite: 1, alpha: 0.25)
+            pebble.lineWidth = 0.5
+            pebble.position = CGPoint(x: CGFloat(i) * 11, y: CGFloat.random(in: 2...12))
             gravel.addChild(pebble)
         }
         gravel.zPosition = 7
         addChild(gravel)
 
-        // A swaying seaweed blade.
-        let blade = CGMutablePath()
-        blade.move(to: CGPoint(x: 0, y: 0))
-        blade.addQuadCurve(to: CGPoint(x: 6, y: 60), control: CGPoint(x: 24, y: 30))
-        blade.addQuadCurve(to: CGPoint(x: 0, y: 0), control: CGPoint(x: -12, y: 30))
-        plant.path = blade
-        plant.fillColor = NSColor(calibratedRed: 0.18, green: 0.6, blue: 0.32, alpha: 0.9)
-        plant.strokeColor = .clear
+        // Two swaying seaweed blades.
+        for (idx, dx) in [CGFloat(-14), 10].enumerated() {
+            let blade = SKShapeNode()
+            let path = CGMutablePath()
+            let height: CGFloat = idx == 0 ? 70 : 54
+            path.move(to: CGPoint(x: 0, y: 0))
+            path.addQuadCurve(to: CGPoint(x: 6, y: height), control: CGPoint(x: 26, y: height / 2))
+            path.addQuadCurve(to: CGPoint(x: 0, y: 0), control: CGPoint(x: -14, y: height / 2))
+            blade.path = path
+            blade.fillColor = NSColor(calibratedRed: 0.30, green: 0.74, blue: 0.36, alpha: 0.92)
+            blade.strokeColor = .clear
+            blade.position = CGPoint(x: dx, y: 0)
+            blade.run(.repeatForever(.sequence([
+                .rotate(toAngle: 0.14, duration: 2.2 + Double(idx) * 0.4),
+                .rotate(toAngle: -0.14, duration: 2.2 + Double(idx) * 0.4),
+            ])))
+            plant.addChild(blade)
+        }
         plant.zPosition = 7
-        plant.run(.repeatForever(.sequence([
-            .rotate(toAngle: 0.12, duration: 2.2),
-            .rotate(toAngle: -0.12, duration: 2.2),
-        ])))
         addChild(plant)
+
+        // Glass panel sheen across the very top (the "screen" reflection).
+        glassSheen.texture = SpriteTextures.verticalGradient(
+            size: CGSize(width: 64, height: 64),
+            top: NSColor(calibratedWhite: 1, alpha: 0.28),
+            bottom: NSColor(calibratedWhite: 1, alpha: 0.0)
+        )
+        glassSheen.anchorPoint = CGPoint(x: 0.5, y: 1)
+        glassSheen.blendMode = .add
+        glassSheen.zPosition = 50
+        addChild(glassSheen)
     }
 
     override func didMove(to view: SKView) {
         super.didMove(to: view)
-        // Deliver mouseMoved so we can show fish tooltips on hover.
         view.window?.acceptsMouseMovedEvents = true
         let area = NSTrackingArea(
             rect: view.bounds,
@@ -152,6 +229,23 @@ final class AquariumScene: SKScene {
             userInfo: nil
         )
         view.addTrackingArea(area)
+        startBokehDrift()
+    }
+
+    private func startBokehDrift() {
+        for dot in bokehLayer.children {
+            animateBokeh(dot)
+        }
+    }
+
+    private func animateBokeh(_ dot: SKNode) {
+        dot.position = CGPoint(x: .random(in: 0...size.width), y: .random(in: 0...size.height))
+        let drift = SKAction.moveBy(x: .random(in: -40...40), y: .random(in: 40...120), duration: .random(in: 8...16))
+        drift.timingMode = .easeInEaseOut
+        dot.run(drift) { [weak self, weak dot] in
+            guard let self, let dot else { return }
+            self.animateBokeh(dot)
+        }
     }
 
     // MARK: - Hover tooltip
@@ -164,7 +258,7 @@ final class AquariumScene: SKScene {
 
         if let fish = hit {
             tooltip.setText(fish.appLabel)
-            tooltip.position = CGPoint(x: fish.position.x, y: fish.position.y + 22)
+            tooltip.position = CGPoint(x: fish.position.x, y: fish.position.y + 26)
             tooltip.isHidden = false
         } else {
             tooltip.isHidden = true
@@ -183,8 +277,9 @@ final class AquariumScene: SKScene {
             case .add(let sample):
                 let fish = FishNode(sample: sample)
                 fishNodes[sample.pid] = fish
+                fish.zPosition = 10
                 addChild(fish)
-                fish.startWandering(in: size)
+                fish.startWandering(in: CGSize(width: size.width, height: size.height * waterFraction))
                 fish.alpha = 0
                 fish.run(.fadeIn(withDuration: 0.5))
             case .remove(let pid):
@@ -198,26 +293,46 @@ final class AquariumScene: SKScene {
         currentProcesses = processes
     }
 
-    /// Re-place nodes for the current scene size.
+    // MARK: - Layout
+
     private func layout() {
-        waterNode.size = CGSize(width: size.width, height: waterNode.size.height == 0 ? size.height : waterNode.size.height)
+        sky.size = CGSize(width: size.width, height: size.height)
+        sky.position = CGPoint(x: size.width / 2, y: 0)
+
+        let waterHeight = max(size.height * waterFraction, 8)
+
+        waterNode.size = CGSize(width: size.width, height: waterHeight)
         waterNode.position = CGPoint(x: size.width / 2, y: 0)
-        memoryTint.size = CGSize(width: size.width, height: size.height)
+
+        waterSheen.size = CGSize(width: size.width, height: min(60, waterHeight))
+        waterSheen.position = CGPoint(x: size.width / 2, y: waterHeight)
+
+        waterline.size = CGSize(width: size.width, height: 8)
+        waterline.position = CGPoint(x: size.width / 2, y: waterHeight)
+
+        memoryTint.size = CGSize(width: size.width, height: waterHeight)
         memoryTint.position = CGPoint(x: size.width / 2, y: 0)
+
         bubbleEmitter.position = CGPoint(x: size.width / 2, y: 0)
         bubbleEmitter.particlePositionRange = CGVector(dx: size.width, dy: 0)
 
-        specular.position = CGPoint(x: size.width / 2, y: size.height)
-        specular.size = CGSize(width: size.width, height: size.height * 0.5)
-        gravel.position = CGPoint(x: 0, y: 0)
-        plant.position = CGPoint(x: size.width - 40, y: 6)
+        gravel.position = .zero
+        plant.position = CGPoint(x: size.width - 42, y: 6)
+
+        glassSheen.size = CGSize(width: size.width, height: size.height * 0.4)
+        glassSheen.position = CGPoint(x: size.width / 2, y: size.height)
     }
 
-    /// Apply a vitals snapshot to the scene (animated).
+    // MARK: - Apply snapshot
+
     func apply(_ snapshot: VitalsSnapshot) {
-        let level = CGFloat(snapshot.batteryFraction ?? 1)
-        let targetHeight = max(size.height * level, 8)
-        waterNode.run(.resize(toHeight: targetHeight, duration: 0.6))
+        waterFraction = CGFloat(snapshot.batteryFraction ?? 1)
+        let waterHeight = max(size.height * waterFraction, 8)
+
+        waterNode.run(.resize(toHeight: waterHeight, duration: 0.6))
+        memoryTint.run(.resize(toHeight: waterHeight, duration: 0.6))
+        waterline.run(.moveTo(y: waterHeight, duration: 0.6))
+        waterSheen.run(.moveTo(y: waterHeight, duration: 0.6))
 
         bubbleEmitter.particleBirthRate = CGFloat(snapshot.cpuFraction) * maxBubbleRate
 

@@ -1,30 +1,34 @@
 import AppKit
 import SpriteKit
 
-/// Builds the rising-bubble emitter. Birth rate is set later from CPU load.
+/// Builds the rising-bubble emitter using translucent glass bubbles. Birth rate
+/// is set later from CPU load.
 enum BubbleEmitter {
     static func make(width: CGFloat) -> SKEmitterNode {
         let emitter = SKEmitterNode()
-        emitter.particleTexture = SpriteTextures.circle(diameter: 10, color: .white)
+        emitter.particleTexture = SpriteTextures.glossyBubble(diameter: 48)
         emitter.particleBirthRate = 0 // driven by CPU in AquariumScene.apply
-        emitter.particleLifetime = 4
-        emitter.particleLifetimeRange = 1.5
+        emitter.particleLifetime = 5
+        emitter.particleLifetimeRange = 2
 
         // Spawn across the bottom, drift upward with a little wobble.
         emitter.particlePositionRange = CGVector(dx: width, dy: 0)
-        emitter.particleSpeed = 35
-        emitter.particleSpeedRange = 15
+        emitter.particleSpeed = 32
+        emitter.particleSpeedRange = 16
         emitter.emissionAngle = .pi / 2 // straight up
-        emitter.emissionAngleRange = .pi / 8
-        emitter.xAcceleration = 0
-        emitter.yAcceleration = 8
+        emitter.emissionAngleRange = .pi / 10
+        emitter.yAcceleration = 6
 
-        emitter.particleScale = 0.18
-        emitter.particleScaleRange = 0.12
-        emitter.particleAlpha = 0.5
-        emitter.particleAlphaRange = 0.2
-        emitter.particleAlphaSpeed = -0.12
-        emitter.particleBlendMode = .add
+        // Varied glass bubble sizes; gently grow as they rise.
+        emitter.particleScale = 0.22
+        emitter.particleScaleRange = 0.20
+        emitter.particleScaleSpeed = 0.04
+
+        emitter.particleAlpha = 0.85
+        emitter.particleAlphaRange = 0.15
+        emitter.particleAlphaSpeed = -0.10
+        emitter.particleBlendMode = .alpha // glass, not glow
+        emitter.particleRotationRange = .pi
         emitter.zPosition = 5
         return emitter
     }
