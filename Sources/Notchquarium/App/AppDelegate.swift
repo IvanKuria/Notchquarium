@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import SpriteKit
 
 /// Owns the app lifecycle: spins up the notch panel, the vitals poller and (in
 /// later tasks) the menu-bar item.
@@ -7,6 +8,7 @@ import Combine
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: NSPanel?
     private let vitals = SystemVitals()
+    private let scene = AquariumScene(size: CGSize(width: 460, height: 240))
     private var cancellables: Set<AnyCancellable> = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -27,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard let screen = NSScreen.main else { return }
 
-        let size = CGSize(width: 300, height: 180)
+        let size = CGSize(width: 460, height: 240)
         let origin = CGPoint(
             x: screen.frame.midX - size.width / 2,
             y: screen.frame.maxY - size.height
@@ -45,7 +47,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.isOpaque = false
         panel.hasShadow = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+
+        let skView = SKView(frame: CGRect(origin: .zero, size: size))
+        skView.allowsTransparency = true
+        skView.presentScene(scene)
+        panel.contentView = skView
         panel.orderFrontRegardless()
+
+        // Feed every vitals snapshot into the scene.
+        vitals.$snapshot
+            .sink { [weak self] snapshot in
+                self?.scene.apply(snapshot)
+            }
+            .store(in: &cancellables)
 
         self.panel = panel
     }
