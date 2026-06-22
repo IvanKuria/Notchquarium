@@ -11,6 +11,11 @@ final class AquariumScene: SKScene {
     private let memoryTint = SKSpriteNode()
     private var bubbleEmitter = SKEmitterNode()
 
+    private var fishNodes: [pid_t: FishNode] = [:]
+    private var currentProcesses: [ProcessSample] = []
+
+    private let tooltip = TooltipNode()
+
     /// Tuning constants for the vitals→visuals mapping.
     private let maxBubbleRate: CGFloat = 60
     private let maxMurkAlpha: CGFloat = 0.45
@@ -59,7 +64,68 @@ final class AquariumScene: SKScene {
         bubbleEmitter = BubbleEmitter.make(width: size.width)
         addChild(bubbleEmitter)
 
+        tooltip.zPosition = 100
+        tooltip.isHidden = true
+        addChild(tooltip)
+
         layout()
+    }
+
+    override func didMove(to view: SKView) {
+        super.didMove(to: view)
+        // Deliver mouseMoved so we can show fish tooltips on hover.
+        view.window?.acceptsMouseMovedEvents = true
+        let area = NSTrackingArea(
+            rect: view.bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        view.addTrackingArea(area)
+    }
+
+    // MARK: - Hover tooltip
+
+    override func mouseMoved(with event: NSEvent) {
+        let location = event.location(in: self)
+        let hit = nodes(at: location).compactMap { node -> FishNode? in
+            node as? FishNode ?? node.parent as? FishNode
+        }.first
+
+        if let fish = hit {
+            tooltip.setText(fish.appLabel)
+            tooltip.position = CGPoint(x: fish.position.x, y: fish.position.y + 22)
+            tooltip.isHidden = false
+        } else {
+            tooltip.isHidden = true
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        tooltip.isHidden = true
+    }
+
+    // MARK: - Fish
+
+    private func applyFish(_ processes: [ProcessSample]) {
+        for op in FishDiff.ops(current: currentProcesses, next: processes) {
+            switch op {
+            case .add(let sample):
+                let fish = FishNode(sample: sample)
+                fishNodes[sample.pid] = fish
+                addChild(fish)
+                fish.startWandering(in: size)
+                fish.alpha = 0
+                fish.run(.fadeIn(withDuration: 0.5))
+            case .remove(let pid):
+                if let fish = fishNodes.removeValue(forKey: pid) {
+                    fish.run(.sequence([.fadeOut(withDuration: 0.4), .removeFromParent()]))
+                }
+            case .update(let sample):
+                fishNodes[sample.pid]?.bind(sample)
+            }
+        }
+        currentProcesses = processes
     }
 
     /// Re-place nodes for the current scene size.
@@ -82,5 +148,7 @@ final class AquariumScene: SKScene {
 
         let murk = CGFloat(snapshot.memoryUsedFraction) * maxMurkAlpha
         memoryTint.run(.fadeAlpha(to: murk, duration: 0.6))
+
+        applyFish(snapshot.topProcesses)
     }
 }
